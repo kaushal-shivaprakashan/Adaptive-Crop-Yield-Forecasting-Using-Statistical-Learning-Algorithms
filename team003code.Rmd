@@ -1,0 +1,738 @@
+---
+title: "Adaptive Crop Yield Forecasting Using Statistical Learning Algorithms"
+author: "Vamsi Sai Garapati, Vaishak Muralidharan, Kaushal Shivaprakashan"
+output:
+  html_document:
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(ISLR2)
+library(ggplot2)
+```
+
+
+# Loading Data
+
+
+```{r, echo=TRUE}
+crop_data <- read.csv("crop_yield_trimmed.csv")
+```
+
+
+- (b). [2 pts]	Inspect the first few rows of the dataset using `head()` and check the structure of the data using `str()`.
+Check for any missing values using `is.na()`.
+
+**Exploratory data analysis and data preprocessing**
+
+`put your solution here `
+
+```{r}
+head(crop_data,5)
+orig_crop_data<-crop_data
+str(crop_data)
+colSums(is.na(crop_data))
+```
+
+
+  
+```{r}
+summary(crop_data)
+colnames(crop_data)
+```
+   The following are observations from the summary provided:
+
+General Observations:
+1. Categorical Variables:
+• There are several categorical variables, including Region, Soil_Type, Crop, Fertilizer_Used, Irrigation_Used, and Weather_Condition.
+• Each variable has 150,000 entries, indicating no missing data across these columns.
+2. Numerical Variables:
+• Rainfall_mm, Temperature_Celsius, Days_to_Harvest, and Yield_tons_per_hectare are numerical variables.
+• No obvious missing values are found within these variables, since all 150,000 observations are presented in the summary.
+
+Specific Observations:
+
+Rainfall (Rainfall_mm):
+
+•	From 100.0 mm to 1,000.0 mm.
+•	Median rainfall is 549.9 mm, with the mean very close at 549.4 mm, suggesting symmetry in the distribution.
+
+Temperature (Temperature_Celsius):
+
+•	From 15.0°C to 40.0°C.
+•	Median temperature is 27.54°C, with a mean of 27.50°C, again indicating symmetry in the distribution.
+•	IQR is 21.25°C to 33.75°C, meaning most data lies within this range.
+
+Days to Harvest:
+
+•	From 60 days to 149 days.
+•	Median days to harvest is 104.0 days, with an average of 104.4 days.
+•	The majority of crops will be ready for harvest between 82 days (Q1) and 127 days (Q3).
+
+Yield (Yield_tons_per_hectare):
+•	Ranges from -0.8416 to 9.7270 tons per hectare.
+•	The minimum value is negative, which is unusual and might suggest either an outlier or data error.
+•	Median yield is 4.6520 tons/hectare with an average of 4.6473 tons/hectare; hence, yield data seems to be symmetric.
+•	Interquartile range (IQR) for yield ranges from 3.4181 to 5.8719 tons per hectare.
+
+Possible Insights:
+	1.	Balanced Data:
+	•	Categorical variables are of equal length, which indicates no missing values in those columns.
+	2.	Rainfall and Temperature:
+	•	Distributions of rainfall and temperature are close to symmetric because of the proximity of their means and medians.
+	3.	Outlier in Yield:
+	•	The minimum value of yield is -0.8416, which is negative and has no physical meaning. It needs further investigation or correction.
+	4.	Harvest Time Distribution:
+``• Most crops are harvested in about 82 to 127 days with an average of about 104 days.
+
+
+```{r}
+
+cols_to_encode <- c("Region", "Soil_Type", "Crop", "Weather_Condition")
+for (col in cols_to_encode) {
+  crop_data[[col]] <- as.factor(crop_data[[col]])
+  dummy_vars <- model.matrix(as.formula(paste0("~ ", col, " + 0")), data = crop_data)
+  crop_data <- cbind(crop_data, dummy_vars)
+  crop_data[[col]] <- NULL
+}
+head(crop_data, 5)
+```
+
+   - (iii). [3 pts] Use the `plot()` function to produce side-by-side boxplots of Outstate versus Private. Briefly state your observations.
+
+```{r}
+
+bool_cols <- c("Fertilizer_Used", "Irrigation_Used")
+for (col in bool_cols) {
+  crop_data[[col]] <- as.numeric(crop_data[[col]] == "TRUE")
+}
+
+head(crop_data, 5)
+```
+
+
+```{r}
+
+before_count <- nrow(crop_data)
+crop_data <- crop_data[!apply(crop_data, 1, function(row) any(is.na(row) | row == "")), ]
+after_count <- nrow(crop_data)
+
+cat("Row count before removing missing values:", before_count, "\n")
+cat("Row count after removing missing values:", after_count, "\n")
+colnames(crop_data)
+colnames(crop_data[,1:10])
+```
+
+```{r}
+# Load necessary libraries
+library(ggplot2)
+
+# Boxplot: Yield vs Region
+ggplot(crop_data, aes(x = factor(RegionEast + RegionNorth + RegionSouth + RegionWest), y = Yield_tons_per_hectare)) +
+  geom_boxplot() +
+  labs(title = "Yield vs Region", x = "Region", y = "Yield (tons per hectare)")
+
+# Boxplot: Yield vs Soil_Type
+ggplot(crop_data, aes(x = factor(Soil_TypeChalky + Soil_TypeClay + Soil_TypeLoam + Soil_TypePeaty + Soil_TypeSandy + Soil_TypeSilt), 
+                 y = Yield_tons_per_hectare)) +
+  geom_boxplot() +
+  labs(title = "Yield vs Soil Type", x = "Soil Type", y = "Yield (tons per hectare)")
+
+# Boxplot: Yield vs Crop
+ggplot(crop_data, aes(x = factor(CropBarley + CropCotton + CropMaize + CropRice + CropSoybean + CropWheat), 
+                 y = Yield_tons_per_hectare)) +
+  geom_boxplot() +
+  labs(title = "Yield vs Crop", x = "Crop Type", y = "Yield (tons per hectare)")
+
+```
+
+```{r}
+colnames(crop_data)
+```
+
+```{r}
+selected_columns <- crop_data[, c("Rainfall_mm", "Temperature_Celsius", 
+                                  "Fertilizer_Used", "Irrigation_Used", 
+                                  "Days_to_Harvest", "Yield_tons_per_hectare",
+                                  "Soil_TypeLoam", "Weather_ConditionSunny")]
+
+pairs(selected_columns, 
+     main = "Scatterplot Matrix of crop_data variables",
+      pch = 21, bg = "lightgreen")
+```
+
+The dataset was cleaned and transformed to create a robust
+foundation for analysis and trimmed to 150k records :
+• Absent and null entries were removed, thus reducing extra noise in the dataset.
+• Categorical variables such as Region, Soil_Type, and Weather_Condition were encoded into
+dummy variables, increasing the number of features to 25. And Numeric features were
+standardized to bring all variables to the same scale, improving model stability.
+Pairwise Relationships: The pairs plot against the target variable for initial feature relationships was done
+using the key predictors: Rainfall_mm, Temperature_Celsius, Fertilizer_Used, Irrigation_Used, and
+Days_to_Harvest. Following is obtained by observing it:
+• High positive correlation between Rainfall_mm and Yield_tons_per_hectare, thereby further
+justifying its importance for yield predictions.
+• Fertilizer_Used: It's positively related, but beyond a certain level, the returns diminish.
+• days_to_harvest: positive, but with nonlinear trends.
+• Insignificant or minimal associations with all dummy variables, including categories of Region.
+Rainfall and temperature data presented some outliers that might need further attention.
+
+
+```{r}
+#Assuming variables are loaded into MATLAB as vectors
+
+# Load necessary library
+library(ggplot2)
+
+# Histogram: Rainfall
+ggplot(crop_data, aes(x = Rainfall_mm)) +
+  geom_histogram(binwidth = 10, fill = "skyblue", color = "black") +
+  labs(title = "Histogram of Rainfall", x = "Rainfall (mm)", y = "Frequency")
+
+# Histogram: Temperature
+ggplot(crop_data, aes(x = Temperature_Celsius)) +
+  geom_histogram(binwidth = 1, fill = "lightgreen", color = "black") +
+  labs(title = "Histogram of Temperature", x = "Temperature (°C)", y = "Frequency")
+
+# Histogram: Fertilizer Used
+ggplot(crop_data, aes(x = Fertilizer_Used)) +
+  geom_histogram(binwidth = 5, fill = "orange", color = "black") +
+  labs(title = "Histogram of Fertilizer Used", x = "Fertilizer Used (kg)", y = "Frequency")
+
+# Histogram: Irrigation Used
+ggplot(crop_data, aes(x = Irrigation_Used)) +
+  geom_histogram(binwidth = 1, fill = "pink", color = "black") +
+  labs(title = "Histogram of Irrigation Used", x = "Irrigation Used", y = "Frequency")
+
+# Histogram: Days to Harvest
+ggplot(crop_data, aes(x = Days_to_Harvest)) +
+  geom_histogram(binwidth = 10, fill = "purple", color = "black") +
+  labs(title = "Histogram of Days to Harvest", x = "Days to Harvest", y = "Frequency")
+
+# Histogram: Yield (Predictor)
+ggplot(crop_data, aes(x = Yield_tons_per_hectare)) +
+  geom_histogram(binwidth = 0.5, fill = "gold", color = "black") +
+  labs(title = "Histogram of Yield", x = "Yield (tons per hectare)", y = "Frequency")
+
+```
+
+
+
+# Understanding data more
+
+```{r}
+# Select numeric columns for correlation analysis
+numeric_cols <- crop_data[c("Rainfall_mm", "Temperature_Celsius", "Fertilizer_Used", 
+                            "Irrigation_Used", "Days_to_Harvest", "Yield_tons_per_hectare")]
+
+# Compute the correlation matrix
+cor_matrix <- cor(numeric_cols, use = "complete.obs")
+
+# Print the correlation matrix
+print(cor_matrix)
+
+
+```
+Observations
+
+Rainfall and Yield (0.763):
+
+There is a strong positive correlation between Rainfall and Yield_tons_per_hectare with a value of 0.763. This explains that rainfall is an essential determinant of crop yield. 
+Temperature and Yield (0.085):
+
+Temperature correlates positively with Yield_tons_per_hectare by 0.085, which is a weak relation. This may indicate that temperature has a minor impact on crop yield directly. 
+Days to Harvest and Yield (0.00035):
+
+Days_to_Harvest is extremely weakly positively correlated to Yield_tons_per_hectare, with values close to zero. That would hint that harvest duration probably doesn't directly influence yield.
+Rainfall and Temperature (-0.0028):
+
+There is a negligible negative correlation between Rainfall_mm and Temperature_Celsius. The two factors are almost independent in this data set.
+Missing Correlations:
+
+The correlation coefficients for Fertilizer_Used and Irrigation_Used are not available (NA), likely due to the insufficient data or constancy of these columns in this dataset. That could be an area of further investigation or application of imputation techniques.  
+Multicollinearity:  
+
+There are no strong correlations between the predictors, Rainfall_mm, Temperature_Celsius, Days_to_Harvest. It appears there is no multicollinearity issue regarding these variables.
+
+
+
+# Building initial models and comparision
+```{r}
+# Fit a model using all numeric columns
+model_all <- lm(Yield_tons_per_hectare ~ ., data = crop_data)
+summary(model_all)
+
+```
+
+```{r}
+# Model with a subset of important variables
+model_important <- lm(Yield_tons_per_hectare ~ Rainfall_mm + Temperature_Celsius + Days_to_Harvest, data = crop_data)
+summary(model_important)
+
+```
+
+
+
+
+```{r}
+# Model with squared transformations
+model_squared <- lm(Yield_tons_per_hectare ~ I(Rainfall_mm^2) + I(Temperature_Celsius^2) + Days_to_Harvest, data = crop_data)
+summary(model_squared)
+
+```
+
+```{r}
+# Model with log transformations
+model_log <- lm(Yield_tons_per_hectare ~ log(Rainfall_mm + 0.001) + log(Temperature_Celsius + 0.001) + Days_to_Harvest, data = crop_data)
+summary(model_log)
+
+```
+```{r}
+# Extract coefficients
+
+coef_all <- coef(model_all)
+coef_important <- coef(model_important)
+coef_squared <- coef(model_squared)
+coef_log <- coef(model_log)
+
+# Align all coefficients into a single data frame
+coefficients_comparison <- data.frame(
+  Variable = unique(c(names(coef_all), names(coef_important), 
+                      names(coef_squared), names(coef_log))),
+  All_Variables = NA,
+  Important_Variables = NA,
+  Squared_Transform = NA,
+  Log_Transform = NA
+)
+
+# Fill in the coefficients for each model
+coefficients_comparison$All_Variables <- coef_all[coefficients_comparison$Variable]
+coefficients_comparison$Important_Variables <- coef_important[coefficients_comparison$Variable]
+coefficients_comparison$Squared_Transform <- coef_squared[coefficients_comparison$Variable]
+coefficients_comparison$Log_Transform <- coef_log[coefficients_comparison$Variable]
+
+# Print the resulting data frame
+print(coefficients_comparison)
+
+```
+
+```{r}
+# Compare R-squared and Adjusted R-squared values
+performance_comparison <- data.frame(
+  Model = c("All Variables", "Important Variables", "Squared Transform", "Log Transform"),
+  R_Squared = c(summary(model_all)$r.squared,
+                summary(model_important)$r.squared,
+                summary(model_squared)$r.squared,
+                summary(model_log)$r.squared),
+  Adjusted_R_Squared = c(summary(model_all)$adj.r.squared,
+                         summary(model_important)$adj.r.squared,
+                         summary(model_squared)$adj.r.squared,
+                         summary(model_log)$adj.r.squared)
+)
+print(performance_comparison)
+
+```
+ 
+```{r}
+# Plot diagnostic plots for all models
+par(mfrow = c(2, 2)) # Arrange plots in a 2x2 grid
+plot(model_all, main = "Model with All Variables")
+plot(model_important, main = "Model with Important Variables")
+plot(model_squared, main = "Model with Squared Transformations")
+plot(model_log, main = "Model with Log Transformations")
+
+```
+
+
+```{r}
+# Predictions vs Actuals
+crop_data$Pred_All <- predict(model_all)
+crop_data$Pred_Important <- predict(model_important)
+crop_data$Pred_Squared <- predict(model_squared)
+crop_data$Pred_Log <- predict(model_log)
+
+ggplot(crop_data, aes(x = Yield_tons_per_hectare)) +
+  geom_point(aes(y = Pred_All, color = "All Variables")) +
+  geom_point(aes(y = Pred_Important, color = "Important Variables")) +
+  geom_point(aes(y = Pred_Squared, color = "Squared Transform")) +
+  geom_point(aes(y = Pred_Log, color = "Log Transform")) +
+  labs(title = "Predicted vs Actual Yield", x = "Actual Yield", y = "Predicted Yield") +
+  scale_color_manual(values = c("All Variables" = "red", "Important Variables" = "blue", 
+                                "Squared Transform" = "green", "Log Transform" = "purple"))
+
+```
+
+
+Observations:
+All Variables Model:
+
+Best performance, R-Squared = 0.5905, which means 59% of variance.
+Slightly better than the important variables model.
+Important Variables Model:
+
+Comparable to the full model with little loss in performance.
+Much more efficient because of reduced complexity.
+Squared Transform Model:
+
+Lower R-Squared = 0.5655, indicating very limited non-linear relationships.
+Log Transform Model:
+
+Lowest performance, R-Squared = 0.5482, indicating log transformations are not very effective.
+Adjusted R-Squared:
+
+Very little difference among all models, so no overfitting at all.
+Recommendation:
+
+Employ the significant variables model to enhance efficiency while preserving predictive capability.
+
+
+# Feature Selection and Model tuning
+
+```{r}
+# Remove the predicted columns from crop_data
+crop_data <- crop_data[, !names(crop_data) %in% c("Pred_All", "Pred_Important", "Pred_Squared", "Pred_Log")]
+
+# Check the first few rows to ensure the columns were removed
+head(crop_data)
+
+set.seed(369)
+
+# Split the data: 80% for training and 20% for testing
+testRows <- sample(nrow(crop_data), 0.2 * nrow(crop_data))
+testData <- crop_data[testRows, ]
+trainData <- crop_data[-testRows, ]
+
+# Reset row names for trainData
+row.names(trainData) <- NULL
+
+# View the first few rows of the training data
+head(trainData)
+
+```
+
+```{r}
+model1 <- lm(Yield_tons_per_hectare ~ ., data = trainData)
+summary(model1)
+
+```
+
+#Checking multicolinearity
+
+
+```{r}
+# Load the necessary library
+library(car)
+
+# One-Hot Encoding the categorical variables in orig_crop_data
+orig_crop_data_encoded <- model.matrix(~ Region + Soil_Type + Crop + Weather_Condition + Rainfall_mm + 
+                                      Temperature_Celsius + Fertilizer_Used + Irrigation_Used + Days_to_Harvest, 
+                                      data = orig_crop_data)
+
+# Remove the intercept column created by model.matrix (first column is the intercept)
+orig_crop_data_encoded <- orig_crop_data_encoded[, -1]
+
+# Combine the encoded data with the dependent variable 'Yield_tons_per_hectare'
+encoded_data_with_target <- cbind(orig_crop_data_encoded, Yield_tons_per_hectare = orig_crop_data$Yield_tons_per_hectare)
+
+# Convert the resulting matrix into a data frame
+encoded_data_with_target <- as.data.frame(encoded_data_with_target)
+
+# Fit the linear model using all the columns
+model_orig <- lm(Yield_tons_per_hectare ~ ., data = encoded_data_with_target)
+
+# Calculate the Variance Inflation Factor (VIF)
+vif(model_orig)
+
+
+
+```
+VIF Summary and Observations:
+Multicollinearity: The VIF values for the variables in your model are all very close to 1 or just slightly above it, which indicates that multicollinearity is not a major issue here. Commonly, a VIF above 5 or 10 is a sign of high multicollinearity; thus, the current values suggest that the predictors are not strongly collinear.
+
+The largest values of VIF are observed for categorical variables: RegionNorth, RegionSouth, RegionWest, Soil_TypeClay, Soil_TypeLoam, and all other soil- and crop-related type variables that range approximately between 1.49 and 1.68. This confirms that those variables, being important contributors to the model, do not show high collinearity with other variables.
+
+Weather and Fertilizer Usage: The VIFs for the weather-related variables (Weather_ConditionRainy, Weather_ConditionSunny) and usage indicators (Fertilizer_UsedTrue, Irrigation_UsedTrue) also range from about 1.33 to 1.67, indicating no major multicollinearity between these.
+
+Other Variables: Rainfall_mm, Temperature_Celsius, and Days_to_Harvest all have VIF values close to 1, indicating multicollinearity is not a problem for these variables; hence, each adds unique information to the model.
+
+
+
+In the final analysis, the data set shows no serious issues with multicollinearity, hence the predictors will be useful in model development without any fear of enlarged standard errors due to multicollinearity.
+
+```{r}
+# Define response variable and predictor variables
+response_var <- "Yield_tons_per_hectare"
+predictor_vars <- setdiff(names(trainData), response_var)
+names(trainData)
+# Load the necessary library
+library(leaps)
+model2 <- regsubsets(Yield_tons_per_hectare ~ ., data = trainData, nvmax = length(predictor_vars))
+model2_summary <- summary(model2)
+print(model2_summary)
+bic_values <- model2_summary$bic
+bic_values
+optimal_n <- which.min(bic_values)
+
+# Print the selected predictors for the optimal model
+selected_vars <- names(coef(model2, optimal_n))[-1]  # Remove the intercept term
+print(selected_vars)
+```
+
+Observation:
+Chosen Predictors: The best subset selection method found that the most relevant predictors for Yield_tons_per_hectare are Rainfall_mm and Temperature_Celsius.
+
+Insight: This means that, under the subset selection methodology, these two variables have the largest influence on predicting crop yield in this dataset. This shows how important climatic factors, such as precipitation and temperature, are in determining crop yields. Implications: Whereas there are other variables in the dataset, Rainfall_mm and Temperature_Celsius have been the most important yield predictors. This shows that climatic conditions are very vital in predicting crop yields, and it may mean that further analysis is needed to understand the relationship between these factors and the rest of the characteristics in the dataset for better prediction accuracy.
+
+
+```{r}
+model3 <- step(lm(model1, data = trainData), direction = "forward", trace = FALSE)  
+
+print(summary(model3))
+
+model3_aic <- AIC(model3)
+model3_bic <- BIC(model3)
+
+get_best_model_info <- function(model, method_name) {
+  selected_formula <- formula(model)
+  selected_predictors <- all.vars(selected_formula)[-1]  # Remove response variable
+  aic <- AIC(model)
+  bic <- BIC(model)
+  num_predictors <- length(selected_predictors)
+  cat(paste("\n", method_name, "Model:\n"))
+  cat("Number of Predictors:", num_predictors, "\n")
+  cat("AIC:", aic, "\n")
+  cat("BIC:", bic, "\n")
+  cat("Selected Predictors:\n", paste(selected_predictors, collapse = ", "), "\n")
+}
+
+get_best_model_info(model3, "Forward Stepwise")
+model4 <- step(lm(model1, data = trainData), direction = "backward", trace = FALSE) 
+print(summary(model4))
+model4_aic <- AIC(model4)
+model4_bic <- BIC(model4)
+get_best_model_info(model4, "Backward Stepwise")
+```
+
+Observations:
+Forward Stepwise Model:
+
+The forward selection method retained a large set of 24 predictors, including factors such as climate, soil type, crop type, and weather conditions, in addition to the important variables of Rainfall_mm and Temperature_Celsius.
+The AIC (360156.2) and BIC (360350.1) values of the model indicate the inclusion of a considerably extensive array of predictors. Even with the thorough selection of variables, the model implies that further simplification could be advantageous, as evidenced by the comparatively elevated AIC and BIC values.
+Backward Stepwise Model:
+
+The backward selection technique stopped at a set of three predictors: Rainfall_mm, Temperature_Celsius, and Days_to_Harvest.
+The AIC (360130.1) and BIC (360178.6) metrics show a slight improvement over the forward selection model, indicating that the model fit has been improved by removing the spurious predictors.
+Its adjusted R-squared value of 0.5905, together with the Multiple R-squared value of 0.5905, shows that only about 59% of crop yield variability is explained by the model, considering these three predictors.
+The analysis shows that both Rainfall_mm and Temperature_Celsius are significant in crop yield prediction through an exceptionally small p-value of < 0.001. However, Days_to_Harvest reflects a lower level of significance with a p-value of 0.127, indicating a potential weak relationship in affecting the eventual yield.
+Principal Findings:
+
+In both models, Rainfall_mm and Temperature_Celsius are always among the significant predictors, highlighting the importance of climatic factors in predicting crop yield.
+The inclusion of Days_to_Harvest in the final model, though not of high significance, does suggest a small impact of the duration of crop maturation on yield. This would suggest a stepwise selection process towards a more parsimonious model containing fewer key variables, or contrarily, it would seem that a less complex model with only these few key variables could fit just as well—especially if interpretability is preferred over complexity.
+
+Implications: More on this in practical applications, Rainfall_mm and Temperature_Celsius might give a substantial idea of predicting crop yield to drive agricultural planning and resource management. Later versions of the model can benefit from further exploration on including or excluding variables like Days_to_Harvest. Although this variable is less important, it does have some value in specific contexts or with more sophisticated feature engineering.
+
+# Lasso regression
+
+
+```{r}
+library(glmnet)
+predictor_vars
+X <- as.matrix(trainData[, predictor_vars])
+y <- trainData[[response_var]]
+lasso_model <- cv.glmnet(X, y, alpha = 1, nfolds = 10)
+optimal_lambda_lasso <- lasso_model$lambda.min
+print(paste("Optimal lambda for LASSO:", optimal_lambda_lasso))
+lasso_fit <- glmnet(X, y, alpha = 1, lambda = lasso_model$lambda)
+lasso_coefficients <- coef(lasso_fit, s = optimal_lambda_lasso)
+print("LASSO Coefficients at optimal lambda:")
+print(lasso_coefficients)
+```
+
+ Observations from LASSO Regression:
+Optimal Lambda: The optimal lambda value is 0.00587, balancing error minimization and model complexity.
+Selected Variables: Only Rainfall_mm and Temperature_Celsius have non-zero coefficients, indicating they are the key predictors of crop yield.
+Eliminated Variables: Other features, including Fertilizer_Used, Irrigation_Used, and categorical variables like Region, Soil_Type, and Crop, were shrunk to zero, indicating their insignificance after regularization.
+Model Simplicity: LASSO has simplified the model, focusing on the most impactful variables and reducing overfitting.
+
+
+```{r}
+ridge_model <- cv.glmnet(X, y, alpha = 0, nfolds = 10)
+ridge_model
+optimal_lambda_ridge <- ridge_model$lambda.min
+print(paste("Optimal lambda for RIDGE:", optimal_lambda_ridge))
+ridge_fit <- glmnet(X, y, alpha = 0, lambda = ridge_model$lambda)
+ridge_coefficients <- coef(ridge_fit, s = optimal_lambda_ridge)
+print("RIDGE Coefficients at optimal lambda:")
+print(ridge_coefficients)
+```
+
+
+Brief overview of ridge regression:
+
+Best Lambda: According to the minimum of mean-squared error along cross-validation, the optimal value of lambda is 0.1295.
+Chosen Variables: The model has 22 nonzero coefficients including important predictors such as Rainfall_mm, Temperature_Celsius, and Days_to_Harvest. It contains a higher influence from categorical variables of Region and Soil_Type, but their coefficients are really small.
+Removed Variables: Such features are Fertilizer_Used and Irrigation_Used, which have been shrunk to zero; hence, according to the penalty applied by Ridge, they are not significant contributors.
+Model Complexity: Compared to LASSO, ridge regression will yield some shrinkage of the coefficients while preserving more predictors in the model by driving many of the coefficients to zero. Thus, this is one example of the trade-off between model complexity and the regularization process.
+
+
+```{r}
+# Load necessary libraries
+
+library(randomForest)
+
+# Train a Random Forest model
+rf_model <- randomForest(Yield_tons_per_hectare ~ ., data = trainData, importance = TRUE, ntree = 10)
+
+# View the importance of each feature
+importance(rf_model)
+
+# Plot the importance of features
+varImpPlot(rf_model)
+
+# Select top N important features (for example, top 10)
+top_features <- sort(importance(rf_model)[,1], decreasing = TRUE)[1:10]
+print(top_features)
+
+# Extract the names of the most important features
+selected_features <- names(top_features)
+print(selected_features)
+
+# You can now create a new dataset using only the selected features
+trainData_selected <- trainData[, c(selected_features, "Yield_tons_per_hectare")]
+
+# Optionally, retrain a model using the selected features
+rf_selected_model <- randomForest(Yield_tons_per_hectare ~ ., data = trainData_selected, ntree = 10)
+
+```
+
+
+Here are concise observations based on the feature selection from the Random Forest model:
+
+Selected Features: The Random Forest model selected the following key features:
+
+Rainfall_mm and Temperature_Celsius: These two climatic variables are crucial in predicting crop yield, likely reflecting how rainfall and temperature influence growth conditions.
+RegionNorth and RegionSouth: The regional variables indicate the spatial variability in crop yield across different geographical areas.
+Days_to_Harvest: This variable is important in determining the time required for crops to mature and its impact on yield prediction.
+Soil_TypeChalky, Soil_TypeClay: These soil type features are vital for understanding how soil composition affects yield, with specific soil types likely influencing the plant's growth potential.
+Weather_ConditionRainy: Weather conditions, such as rain, directly influence crop yield by affecting irrigation needs and growth stages.
+Fertilizer_Used and Irrigation_Used: These variables suggest that agricultural practices, like the use of fertilizers and irrigation, are key factors influencing crop yield.
+Variable Significance: The random forest algorithm has likely identified these variables as the most significant predictors of crop yield in the given dataset, based on how well they contribute to minimizing the error of the model.
+
+Model Interpretation: By selecting these variables, the model suggests that climatic, soil, and agricultural practices play a significant role in determining crop yield, with rainfall, temperature, and soil type being some of the top contributors.
+
+These observations could guide stakeholders in focusing on improving agricultural practices, monitoring weather patterns, and managing soil types for optimized crop yield.
+
+```{r}
+# Make predictions using each model
+# For lasso and ridge, ensure the models are trained with optimal parameters
+test_X <- as.matrix(testData[, predictor_vars])
+predict_regsubsets <- function(object, newdata, id) {
+  formula <- as.formula(object$call[[2]])
+  mat <- model.matrix(formula, newdata)
+  coefi <- coef(object, id = id)
+  vars <- names(coefi)
+  mat[, vars] %*% coefi
+}
+# Lasso Predictions
+lasso_predictions <- predict(lasso_model, newx = test_X, s = optimal_lambda_lasso)
+lasso_predictions <- as.vector(lasso_predictions)
+
+# Ridge Predictions
+ridge_predictions <- predict(ridge_model, newx = test_X, s = optimal_lambda_ridge)
+ridge_predictions <- as.vector(ridge_predictions)
+
+# Random Forest Predictions (assuming the model is already trained)
+rf_predictions <- predict(rf_selected_model, newdata = testData)
+
+# Predictions for other models (model1, model2, model3, model4)
+# Adjust accordingly for your specific model types (e.g., linear models, regsubsets)
+pred_model1 <- predict(model1, newdata = testData)[1:5]
+pred_model2 <- predict_regsubsets(model2, newdata = testData, id = optimal_n)[1:5]
+pred_model3 <- predict_regsubsets(model3, testData)[1:5]
+pred_model4 <- predict_regsubsets(model4, testData)[1:5]
+
+# Create a comparison table with true values and the predictions from all models
+comparison_table <- data.frame(
+  True_Values = testData$Yield_tons_per_hectare[1:5],
+  Model1 = pred_model1,
+  Model2 = pred_model2,
+  Model4 = pred_model4,
+  Lasso = lasso_predictions[1:5],
+  Ridge = ridge_predictions[1:5],
+  RF_Selected = rf_predictions[1:5]
+)
+
+# Print the comparison table
+print(comparison_table)
+
+```
+
+
+
+```{r}
+# Function to calculate MSPE
+calculate_mspe <- function(true_values, predicted_values) {
+  mean((predicted_values - true_values)^2)
+}
+
+# True values (for comparison)
+true_values <- testData$Yield_tons_per_hectare
+
+# Calculate MSPE for each model's predictions
+mspe_model1 <- calculate_mspe(true_values, pred_model1)
+mspe_model2 <- calculate_mspe(true_values, pred_model2)
+#mspe_model3 <- calculate_mspe(true_values, pred_model3)
+mspe_model4 <- calculate_mspe(true_values, pred_model4)
+mspe_lasso <- calculate_mspe(true_values, lasso_predictions)
+mspe_ridge <- calculate_mspe(true_values, ridge_predictions)
+mspe_rf <- calculate_mspe(true_values, rf_predictions)
+
+# Print MSPE values for each model
+cat("MSPE Values:\n")
+cat("Model1:", mspe_model1, "\n")
+cat("Model2:", mspe_model2, "\n")
+#cat("Model3:", mspe_model3, "\n")
+cat("Model4:", mspe_model4, "\n")
+cat("Lasso:", mspe_lasso, "\n")
+cat("Ridge:", mspe_ridge, "\n")
+cat("Random Forest:", mspe_rf, "\n")
+
+# Store all MSPE values in a vector
+mspe_values <- c(Model1 = mspe_model1, Model2 = mspe_model2, 
+                 Model4 = mspe_model4, Lasso = mspe_lasso, Ridge = mspe_ridge, 
+                 Random_Forest = mspe_rf)
+
+# Find the model with the lowest MSPE (best model)
+best_model <- names(mspe_values)[which.min(mspe_values)]
+best_mspe <- min(mspe_values)
+
+cat("\nBest Model:", best_model, "with MSPE =", best_mspe, "\n")
+
+```
+
+The model comparison results have shown that the selected best model is the Lasso model, with an MSPE value of 1.177387. That is to say, regarding the prediction accuracy, the Lasso model outcompeted other models, such as Ridge and Random Forest, among other regression models.
+
+Concluding Remarks on Lasso Prediction:
+Best Model: It is seen that the Lasso model has the smallest MSPE; therefore, it generalizes best and is capable of giving good predictions on a test dataset.
+Feature Selection: LASSO innately performs feature selection, which implies the shrinkage of model complexity as it compresses the coefficients of the less informative predictors to zero; hence, it yields a lightweight and interpretable model.
+Performance of Prediction: As seen from the sample prediction above, the predicted values using this model are also close to the actual values using the model. Clearly, the Lasso model identified those meaningful associations of predictor variables on the dependent variable, crop yield.
+Predictive Accuracy: The Lasso model shows a good balance between model complexity and performance, thus turning out to be a reliable choice for predicting crop yield for this dataset.
+Practical Application: This should be the model applied in the real world, considering demands for prediction accuracy and model simplicity, especially in agriculture, since the influential factors affect crop yield and should be an input for better decision-making. In general, the performance of the Lasso model shows that it is an extremely effective choice for this particular prediction task, achieving a minimal prediction error while keeping the model simple and interpretable.
+
+
+
+
+**Conclusion:** The Lasso model, with its superior performance and minimal Mean Squared Prediction Error (MSPE), will now be utilized for predicting crop yield in the most optimized way. By efficiently selecting relevant features and minimizing overfitting, Lasso provides a reliable and accurate approach for forecasting crop yields, enabling informed decision-making in agriculture.
+
+
+
+
+
+
+
+
